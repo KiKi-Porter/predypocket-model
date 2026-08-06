@@ -1,0 +1,4 @@
+system_id,source_split,cache_path,frames,frame_interval_ps,coordinate_order
+10gs,train,pocket_cache_100ps_v3/10gs,10,100,"N;CA;C;O"
+1alw,test,pocket_cache_100ps_v3/1alw,10,100,"N;CA;C;O"
+

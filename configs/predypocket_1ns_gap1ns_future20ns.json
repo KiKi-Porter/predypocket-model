@@ -1,0 +1,76 @@
+{
+  "protocol": {
+    "name": "protocol_v2_posthoc",
+    "outer_test_already_inspected": true,
+    "train_proteins_per_fold": 6,
+    "validation_proteins_per_fold": 2,
+    "test_proteins_per_fold": 2,
+    "require_both_classes_in_validation": true
+  },
+  "task": {
+    "input_history_ns": 1,
+    "gap_ns": 1,
+    "future_horizon_ns": 20,
+    "input_frame_count": 11,
+    "model_input_interval_ps": 100,
+    "label_threshold_angstrom3": 20.0
+  },
+  "data": {
+    "manifest": "data/atlas/atlas_dynamic_manifest_10proteins_1ns_gap1ns_future20ns.csv",
+    "folds": "data/atlas/atlas_10protein_protocol_v2_5fold_splits_seed42.json",
+    "fold_membership": "data/atlas/atlas_10protein_protocol_v2_5fold_membership_seed42.csv",
+    "assignments": "data/atlas/atlas_replica_segment_assignments_seed42.csv",
+    "pocket_cache_root": "data/atlas/pocket_cache_20ps",
+    "backbone_cache_root": "data/atlas/backbone_input_cache_100ps",
+    "use_backbone_cache": true,
+    "formal_dataset_report": "outputs/atlas_full_10proteins/FINAL_DATASET_REPORT.md"
+  },
+  "model": {
+    "pretrained_checkpoint": "models/predypocket_initializer",
+    "temporal_input_dim": 128,
+    "gru_hidden_dim": 128,
+    "gru_layers": 1,
+    "bidirectional": false,
+    "time_embedding_dim": 16,
+    "attention_hidden_dim": 64,
+    "dropout": 0.1,
+    "zero_initialize_dynamic_projection": true,
+    "use_vector_gate": true
+  },
+  "metrics": {
+    "single_class_pr_auc": null,
+    "single_class_average_precision": null,
+    "single_class_roc_auc": null,
+    "macro_ignore_undefined": true,
+    "report_undefined_counts": true
+  },
+  "training": {
+    "stage": 1,
+    "stage2_enabled": false,
+    "freeze_gvp": true,
+    "allow_single_class_validation": false,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "gradient_clip_norm": 1.0,
+    "max_epochs": 50,
+    "early_stopping_patience": 8,
+    "max_pos_weight": 20.0,
+    "mixed_precision": true,
+    "seed": 42
+  },
+  "evaluation": {
+    "primary_metric": "pr_auc",
+    "threshold_selection": "validation_max_f1",
+    "report_threshold_0_5": true,
+    "per_protein_metrics": true,
+    "static_anchor_baseline": false,
+    "default_split": "validation",
+    "test_requires_explicit_flag": true
+  },
+  "output": {
+    "root": "outputs/predypocket_protocol_v2/training",
+    "evaluation_root": "outputs/predypocket_protocol_v2/evaluation"
+  }
+}

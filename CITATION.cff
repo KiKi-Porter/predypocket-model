@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use PreDyPocket, cite the CpuPDB manuscript and the upstream GVP work listed in README.md."
+title: "PreDyPocket: Precursor Dynamics Pocket"
+type: software
+authors:
+  - family-names: Tang
+    given-names: Kui
+  - family-names: Zhang
+    given-names: Xuan
+  - family-names: Duan
+    given-names: "Zhi T."
+  - family-names: Lui
+    given-names: "Ding H."
+  - family-names: Li
+    given-names: "Hao L."
+  - family-names: Zhu
+    given-names: "Wen Y."
+  - family-names: Liao
+    given-names: Jun
+    email: liaojun@cpu.edu.cn
+repository-code: "https://github.com/REPLACE_WITH_FINAL_REPOSITORY_URL"
+license: MIT
+
