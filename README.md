@@ -2,16 +2,15 @@
 
 PreDyPocket predicts protein pocket residues from molecular dynamics (MD)
 trajectories. This release packages the PreDyPocket implementation with the
-PocketMiner/GVP geometric encoder required to run it. Sampling, training, and
-inference all start from MD trajectory inputs.
+geometric graph encoder required to run it. Sampling, training, and inference
+all start from MD trajectory inputs.
 
 This repository is not a clinical or diagnostic tool.
 
-![PreDyPocket architecture from the manuscript](docs/assets/figure3_predypocket_architecture.png)
+![PreDyPocket architecture](docs/assets/figure3_predypocket_architecture.png)
 
-The figure above is Figure 3 from the supplied PreDyPocket/CpuPDB manuscript
-draft. Before public release, replace or remove it if the final publication or
-publisher license requires a different figure-use policy.
+The figure summarizes the PreDyPocket architecture. Replace or remove it if
+your publication or publisher license requires a different figure-use policy.
 
 ## Paper Workflow
 
@@ -22,7 +21,6 @@ The code follows the manuscript-level PreDyPocket workflow:
 2. Cluster each segment independently and select 3 early, 3 middle, and 4 late
    representative conformations, giving 10 ordered MD conformations per sample.
 3. Encode every selected conformation with the same geometric graph encoder.
-   In this release that encoder is the released PocketMiner/GVP backbone.
 4. Encode the final trajectory frame separately as the reference conformation.
 5. Build transition-aware residue features from per-frame embeddings, embedding
    changes, change magnitude, and time position.
@@ -34,9 +32,9 @@ The code follows the manuscript-level PreDyPocket workflow:
    0.6 into pocket candidates using C-alpha distance <= 8 A and a minimum of 4
    residues.
 
-Implementation note: the paper describes a full PreDyPocket architecture. This
-repository keeps the same data flow and temporal/reference-fusion idea, while
-using PocketMiner embeddings as the geometric encoder.
+Implementation note: this repository keeps the PreDyPocket data flow and
+temporal/reference-fusion design while using the bundled geometric graph
+encoder.
 
 ## Repository Layout
 
@@ -47,9 +45,8 @@ using PocketMiner embeddings as the geometric encoder.
 │   ├── sample_predypocket_frames.py     # standalone 3:3:4 MD representative sampling
 │   ├── train_predypocket.py             # MD trajectory model training
 │   ├── predypocket_predict.py           # MD trajectory inference
-│   ├── predypocket_pocketminer_model.py # temporal model wrapper
 │   ├── predypocket_utils.py             # MD parsing, labels, sampling, RCSB utilities
-│   ├── models.py                        # required PocketMiner model dependency
+│   ├── models.py                        # geometric graph model components
 │   ├── gvp.py                           # required GVP layer dependency
 │   └── util.py                          # required checkpoint helper dependency
 ├── scripts/
@@ -63,9 +60,8 @@ using PocketMiner embeddings as the geometric encoder.
 └── tests/
 ```
 
-Only `src/models.py`, `src/gvp.py`, and `src/util.py` are vendored from the
-PocketMiner/GVP side because PreDyPocket directly depends on them. The original
-static PocketMiner training pipeline and unrelated data scripts are not included.
+Only the geometric graph model components required by PreDyPocket are included;
+unrelated data and training scripts are not part of this release.
 
 ## Installation
 
@@ -248,10 +244,10 @@ PYTHONPATH=src python -u src/train_predypocket.py \
 
 Notes:
 
-- `--freeze-backbone` freezes the PocketMiner/GVP encoder and trains the
+- `--freeze-backbone` freezes the geometric encoder and trains the
   temporal/ref-fusion layers plus the selected classifier parameters.
 - `--manual-gpu-replicas` creates one model replica per visible GPU. It is used
-  for compatibility with older TensorFlow/PocketMiner graph-mode behavior.
+  for compatibility with older TensorFlow graph-mode behavior.
 - `--max-residues 1000` skips very large proteins during training to avoid
   GVP memory spikes.
 - Remove `--enable-rcsb` and use `--label-methods local_contact` for offline
@@ -351,10 +347,7 @@ larger than 1000 residues. The lowest validation loss was at epoch 3, while the
 highest validation ROC-AUC and PR-AUC were at epoch 9. See
 `docs/training_results.md` for details.
 
-## Citation
+## Acknowledgements
 
-If you use this repository, cite:
-
-1. The PreDyPocket/CpuPDB manuscript associated with this repository.
-2. PocketMiner: cryptic pocket prediction from protein structures.
-3. Geometric Vector Perceptrons for protein structure representation learning.
+We acknowledge the authors of PocketMiner and Geometric Vector Perceptrons for
+their publicly available work and resources.
