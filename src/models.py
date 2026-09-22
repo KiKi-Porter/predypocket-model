@@ -325,13 +325,16 @@ def gather_edges(edges, neighbor_idx):
 def gather_nodes(nodes, neighbor_idx):
     # Features [B,N,C] at Neighbor indices [B,N,K] => [B,N,K,C]
     # Flatten and expand indices per batch [B,N,K] => [B,NK]
-    neighbors_flat = tf.reshape(neighbor_idx, [neighbor_idx.shape[0], -1])
+    neighbors_flat = tf.reshape(neighbor_idx, [tf.shape(neighbor_idx)[0], -1])
 
     # Gather and re-pack
     # nodes [B, N, C], neighbors_flat [B, NK, C] => [B, NK, C]
     # tf: nf[i][j][k] = nodes[i][nf[i][j]][k]
     neighbor_features = tf.gather(nodes, neighbors_flat, axis=1, batch_dims=1)     
-    neighbor_features = tf.reshape(neighbor_features, list(neighbor_idx.shape)[:3] + [-1]) # => [B, N, K, C]
+    neighbor_features = tf.reshape(
+        neighbor_features,
+        tf.concat([tf.shape(neighbor_idx), [tf.shape(nodes)[-1]]], axis=0),
+    ) # => [B, N, K, C]
     return neighbor_features
    
 def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx, nv_nodes, nv_neighbors):
@@ -407,8 +410,10 @@ class StructuralFeatures(Model):
         # Identify k nearest neighbors (including self)
         D_max = tf.math.reduce_max(D, -1, keepdims=True)
         D_adjust = D + (1. - mask_2D) * D_max
-        D_neighbors, E_idx = tf.math.top_k(-D_adjust, 
-                                k=min(self.top_k, tf.shape(X)[1]))
+        D_neighbors, E_idx = tf.math.top_k(
+            -D_adjust,
+            k=tf.minimum(tf.cast(self.top_k, tf.int32), tf.shape(X)[1]),
+        )
         D_neighbors = -D_neighbors
         mask_neighbors = gather_edges(tf.expand_dims(mask_2D, -1), E_idx)
         

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predypocket"
+version = "0.1.0"
+description = "MD trajectory based pocket prediction with PocketMiner/GVP representations"
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "PreDyPocket contributors"}
+]
+dependencies = [
+  "numpy>=1.19,<1.24",
+  "scipy>=1.4",
+  "tensorflow>=2.6,<2.10",
+  "mdtraj>=1.9.7",
+  "tqdm>=4.42",
+  "pandas>=1.0"
+]
+
+[project.scripts]
+predypocket-prepare = "prepare_predypocket_data:main"
+predypocket-sample = "sample_predypocket_frames:main"
+predypocket-train = "train_predypocket:main"
+predypocket-predict = "predypocket_predict:main"
+
+[tool.setuptools]
+py-modules = [
+  "prepare_predypocket_data",
+  "sample_predypocket_frames",
+  "train_predypocket",
+  "predypocket_predict",
+  "predypocket_pocketminer_model",
+  "predypocket_utils",
+  "models",
+  "gvp",
+  "util"
+]
+package-dir = {"" = "src"}

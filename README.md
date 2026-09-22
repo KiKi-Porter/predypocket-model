@@ -1,222 +1,360 @@
 # PreDyPocket
 
-PreDyPocket is a trajectory-informed deep learning model for residue-level prediction of dynamic precursor pocket signals from molecular-dynamics (MD) simulations. Given a short history of protein backbone coordinates, the model assigns one pocket-association score to each residue.
+PreDyPocket predicts protein pocket residues from molecular dynamics (MD)
+trajectories. This release packages the PreDyPocket implementation with the
+PocketMiner/GVP geometric encoder required to run it. Sampling, training, and
+inference all start from MD trajectory inputs.
 
-## Overview
+This repository is not a clinical or diagnostic tool.
 
-The model combines:
+![PreDyPocket architecture from the manuscript](docs/assets/figure3_predypocket_architecture.png)
 
-- a shared geometric vector perceptron (GVP) encoder for protein backbone structure;
-- temporal transition features computed from consecutive MD frames;
-- learned time embeddings;
-- a single-layer unidirectional GRU;
-- residue-wise temporal attention; and
-- a reference-anchored gated fusion module.
+The figure above is Figure 3 from the supplied PreDyPocket/CpuPDB manuscript
+draft. Before public release, replace or remove it if the final publication or
+publisher license requires a different figure-use policy.
 
-The network returns raw logits. Apply a sigmoid function to obtain residue-level probabilities. Pocket regions can then be formed by grouping neighboring residues according to the desired application-specific spatial criteria.
+## Paper Workflow
 
-Two model interfaces are provided:
+The code follows the manuscript-level PreDyPocket workflow:
 
-- `DynamicPreDyPocket`: uses the complete coordinate history and temporal modules;
-- `StaticAnchorPreDyPocket`: uses only the reference frame and provides a static control model.
+1. Split each MD trajectory chronologically into early, middle, and late
+   segments with a 3:3:4 length ratio.
+2. Cluster each segment independently and select 3 early, 3 middle, and 4 late
+   representative conformations, giving 10 ordered MD conformations per sample.
+3. Encode every selected conformation with the same geometric graph encoder.
+   In this release that encoder is the released PocketMiner/GVP backbone.
+4. Encode the final trajectory frame separately as the reference conformation.
+5. Build transition-aware residue features from per-frame embeddings, embedding
+   changes, change magnitude, and time position.
+6. Run residue-wise temporal modeling with a GRU and trajectory attention.
+7. Fuse the dynamic summary back onto the final/reference conformation with a
+   gated residual connection.
+8. Train a residue-wise binary classifier with labels mapped to MD residues.
+9. During inference, report residue scores and cluster residues with score >=
+   0.6 into pocket candidates using C-alpha distance <= 8 A and a minimum of 4
+   residues.
 
-The released initializer is a TensorFlow checkpoint at `models/predypocket_initializer`. It initializes the shared structural encoder and classifier before task-specific training.
+Implementation note: the paper describes a full PreDyPocket architecture. This
+repository keeps the same data flow and temporal/reference-fusion idea, while
+using PocketMiner embeddings as the geometric encoder.
 
-## Requirements
+## Repository Layout
 
-The reference environment is Linux with Python 3.9.9. The validated dependency versions are:
+```text
+.
+├── src/
+│   ├── prepare_predypocket_data.py      # MD feature and residue-label preparation
+│   ├── sample_predypocket_frames.py     # standalone 3:3:4 MD representative sampling
+│   ├── train_predypocket.py             # MD trajectory model training
+│   ├── predypocket_predict.py           # MD trajectory inference
+│   ├── predypocket_pocketminer_model.py # temporal model wrapper
+│   ├── predypocket_utils.py             # MD parsing, labels, sampling, RCSB utilities
+│   ├── models.py                        # required PocketMiner model dependency
+│   ├── gvp.py                           # required GVP layer dependency
+│   └── util.py                          # required checkpoint helper dependency
+├── scripts/
+│   ├── sample_md_frames.sh
+│   ├── prepare_md_data.sh
+│   ├── train_from_md.sh
+│   └── predict_md.sh
+├── examples/dynamic_data_example/       # tiny runnable MD-format example
+├── weights/                             # bundled TensorFlow checkpoints
+├── docs/
+└── tests/
+```
 
-- TensorFlow 2.6.2
-- NumPy 1.19.5
-- SciPy 1.7.3
-- pandas 1.4.0
-- scikit-learn 1.0.2
-- MDTraj 1.9.7
-- PyYAML 6.0
-- tqdm 4.62.3
-
-A CUDA-capable GPU is optional for inference and recommended for training.
+Only `src/models.py`, `src/gvp.py`, and `src/util.py` are vendored from the
+PocketMiner/GVP side because PreDyPocket directly depends on them. The original
+static PocketMiner training pipeline and unrelated data scripts are not included.
 
 ## Installation
 
-From the repository root:
+The code has been tested on Linux with Python 3.9, TensorFlow 2.9.1,
+MDTraj 1.10.1, NumPy 1.23.5, and SciPy 1.13.1.
+
+Create the conda environment:
 
 ```bash
 conda env create -f environment.yml
 conda activate predypocket
 ```
 
-Alternatively, install the pinned Python dependencies in an existing Python 3.9 environment:
+Or install into an existing Python 3.9 environment:
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-## Input and output specification
+For GPU training, use a TensorFlow/CUDA combination compatible with your driver.
+If distributed training is fragile with older TensorFlow graph code, use the
+manual replica mode shown in the training command below.
 
-The dynamic model expects four tensors:
+## Model Weights
 
-| Input | Shape | Description |
-| --- | --- | --- |
-| `coordinates` | `[batch, frames, residues, 4, 3]` | Backbone coordinates in atom order `N, CA, C, O` |
-| `sequence` | `[batch, residues]` | Integer residue sequence indices |
-| `residue_mask` | `[batch, residues]` | Boolean mask for valid residues |
-| `time_offsets_ps` | `[batch, frames]` | Time offset of each frame in picoseconds |
+The complete trained PreDyPocket checkpoint is included in this repository.
+No external weight download is required after cloning the repository.
 
-The output has shape `[batch, residues]` and contains one raw logit per residue. Padding and invalid residues must be excluded with `residue_mask` before scores are interpreted.
-
-The standard ten-frame input contract uses frames at `-900, -800, ..., 0` ps, with the final frame as the reference. The protocol-v2 configuration uses its own eleven-frame contract; use the configuration and data schema together and do not mix the two protocols.
-
-## Quick start
-
-The following command builds the model and runs a deterministic synthetic forward pass without a dataset:
-
-```bash
-python - <<'PY'
-import numpy as np
-from predypocket.model import DynamicPreDyPocket, synthetic_model_inputs
-
-coordinates, sequence, residue_mask, time_offsets_ps = synthetic_model_inputs(
-    batch_size=1, residue_count=8, frame_count=10
-)
-model = DynamicPreDyPocket(input_frame_count=10)
-logits = model(
-    coordinates,
-    sequence,
-    residue_mask,
-    time_offsets_ps=time_offsets_ps,
-    training=False,
-)
-assert tuple(logits.shape) == (1, 8)
-print("logits:", logits.shape)
-PY
-```
-
-## Inference
-
-The following example loads a preprocessed ten-frame system, initializes the model, and converts logits to residue probabilities:
-
-```python
-from pathlib import Path
-
-import numpy as np
-import tensorflow as tf
-
-from predypocket.checkpoint import load_predypocket_pretrained
-from predypocket.model import DynamicPreDyPocket
-
-system_dir = Path("data/examples/misato/pocket_cache_100ps_v3/10gs")
-coordinates = np.load(system_dir / "backbone_coordinates_input.npy")[None]
-sequence = np.load(system_dir / "sequence.npy")[None]
-residue_mask = np.load(system_dir / "valid_residue_mask.npy")[None].astype(bool)
-time_offsets_ps = np.arange(-900, 1, 100, dtype=np.float32)[None]
-
-model = DynamicPreDyPocket(input_frame_count=10)
-model(
-    coordinates,
-    sequence,
-    residue_mask,
-    time_offsets_ps=time_offsets_ps,
-    training=False,
-)
-load_predypocket_pretrained(model, "models/predypocket_initializer")
-
-logits = model(
-    coordinates,
-    sequence,
-    residue_mask,
-    time_offsets_ps=time_offsets_ps,
-    training=False,
-)
-probabilities = tf.math.sigmoid(logits).numpy()[0]
-probabilities[~residue_mask[0]] = np.nan
-print(probabilities)
-```
-
-The initializer produces structural scores before dynamic task-specific training. For a trained model, restore the corresponding TensorFlow checkpoint with the checkpoint utilities in `predypocket.checkpoint`.
-
-## Training
-
-Training uses preprocessed samples containing backbone coordinates, sequence indices, residue masks, time offsets, and residue labels. The labels are consumed by the loss function and are not model inputs. Prepare a manifest and cache directory that follow the schema in the selected configuration.
-
-### MISATO workflow
-
-Use the MISATO entry point for the ten-frame, 100 ps history contract:
-
-```bash
-python scripts/misato/train_dynamic_pocket_v1.py \
-  --manifest /path/to/misato_manifest.csv \
-  --data-dir /path/to/misato_label_data \
-  --output-dir outputs/predypocket_misato_dynamic \
-  --pretrained-checkpoint models/predypocket_initializer \
-  --model-type dynamic \
-  --temporal-mode on \
-  --encoder-frozen \
-  --batch-size 1 \
-  --gradient-accumulation 8 \
-  --max-epochs 50 \
-  --seed 42
-```
-
-For the static control model, set `--model-type static_anchor` and omit `--temporal-mode`.
-
-### Protocol-v2 workflow
-
-The protocol-v2 training and evaluation entry points use the eleven-frame configuration:
-
-```bash
-python scripts/predypocket/train_protocol_v2.py \
-  --config configs/predypocket_protocol_v2.json \
-  --fold 0 \
-  --model-variant dynamic \
-  --device cpu
-```
-
-Run evaluation on a completed fold with:
-
-```bash
-python scripts/predypocket/evaluate_protocol_v2.py \
-  --config configs/predypocket_protocol_v2.json \
-  --fold 0 \
-  --model-variant dynamic \
-  --split validation \
-  --device cpu
-```
-
-The five-fold launcher is available at `scripts/predypocket/run_protocol_v2_5fold.py`. Background and status helpers are provided in the same directory.
-
-## Evaluation and post-processing
-
-Evaluation selects decision thresholds on validation data and applies the frozen threshold to the test split. The package reports average precision, PR-AUC, ROC-AUC, F1, precision, recall, and per-protein summaries. Test evaluation must use checkpoints selected without test-label inspection.
-
-The model output is residue-level; it is not a pocket mesh or an atom-level binding pose. A downstream application should define its own residue threshold and spatial clustering rule, then report those choices together with the model checkpoint and configuration.
-
-## Repository layout
+The checkpoint prefix used for inference is:
 
 ```text
-PreDyPocket/
-├── predypocket/       # Model, data interfaces, losses, metrics, and checkpoint tools
-├── src/               # GVP geometric layers used by the model
-├── scripts/misato/    # MISATO training, evaluation, and cache preparation
-├── scripts/predypocket/ # Protocol-v2 training, evaluation, and utility scripts
-├── configs/           # Versioned task and protocol configurations
-├── models/            # TensorFlow initializer checkpoint
-├── data/examples/     # Small preprocessed systems for inference checks
-├── environment.yml    # Conda environment specification
-├── requirements.txt   # Pinned pip dependencies
-├── CITATION.cff       # Software citation metadata
-└── LICENSE
+weights/predypocket_model
 ```
 
-## Reproducibility
+Each TensorFlow checkpoint prefix needs both files, for example:
 
-For a reproducible experiment, record the repository commit, operating system, Python and dependency versions, dataset and preprocessing version, manifest checksum, fold definition, random seed, training command, checkpoint checksum, validation threshold, and configuration file. Keep generated checkpoints and evaluation reports under a versioned output directory.
+```text
+weights/predypocket_model.index
+weights/predypocket_model.data-00000-of-00001
+```
 
-## License
+See `docs/weight_manifest.md` for the bundled file names and SHA256 checksums.
 
-PreDyPocket is distributed under the MIT License. The GVP components retain their applicable upstream attribution and license notices.
+## Input MD Data
+
+Training and inference both start from MD trajectory data. A typical dataset
+layout is:
+
+```text
+dynamic_data/
+└── 4KVK/
+    └── 4KVK_4KVK_1.PG4_A_703/
+        ├── md_dry.nc
+        ├── complex.prmtop
+        ├── complex.inpcrd
+        ├── protein.prmtop
+        └── complex_reference.pdb
+```
+
+Supported trajectory formats are handled through MDTraj and include `.nc`,
+`.xtc`, `.dcd`, `.trr`, `.h5`, `.pdb`, and `.pdb.gz`. Binary trajectories need a
+matching topology such as `.prmtop` or `.pdb`.
+
+For local training labels, include either `complex.prmtop` plus `complex.inpcrd`
+or a complex PDB containing protein and ligand heavy atoms. The folder name may
+encode the ligand as `<resname>_<chain>_<resseq>`, for example
+`4KVK_4KVK_1.PG4_A_703`.
+
+## Toy Data and Inference Example
+
+The release includes a tiny synthetic MD-format example under:
+
+```text
+examples/dynamic_data_example/TOY/TOY_TOY_1.LIG_B_101/
+├── aa_traj.pdb
+└── complex_reference.pdb
+```
+
+This bundled example is also a directly runnable inference input. It contains a
+12-frame multi-model PDB trajectory with 8 alanine residues and a ligand near
+the middle residues. The data are deliberately small and synthetic; they are
+only for smoke testing and must not be used to evaluate model quality.
+
+Sample the 3:3:4 representative frames:
+
+```bash
+PYTHONPATH=src python -u src/sample_predypocket_frames.py \
+  --system-dir examples/dynamic_data_example/TOY/TOY_TOY_1.LIG_B_101 \
+  --out-prefix outputs/toy_sample
+```
+
+Prepare labels and sampled features from the toy MD data:
+
+```bash
+PYTHONPATH=src python -u src/prepare_predypocket_data.py \
+  --dynamic-root examples/dynamic_data_example \
+  --out-dir outputs/toy_prepared \
+  --label-methods local_contact \
+  --limit 1 \
+  --force \
+  --workers 1
+```
+
+Run inference on the bundled toy MD trajectory with the included checkpoint:
+
+```bash
+MODEL_CHECKPOINT=weights/predypocket_model \
+bash scripts/predict_md.sh \
+  examples/dynamic_data_example/TOY/TOY_TOY_1.LIG_B_101 \
+  outputs/toy_inference/predypocket_toy
+```
+
+The wrapper finds `aa_traj.pdb` as the multi-model trajectory and
+`complex_reference.pdb` as its matching topology. The command writes:
+
+```text
+outputs/toy_inference/predypocket_toy_scores.csv
+outputs/toy_inference/predypocket_toy_scores.npy
+outputs/toy_inference/predypocket_toy_pockets.csv
+outputs/toy_inference/predypocket_toy_selected_frames.npy
+outputs/toy_inference/predypocket_toy_residue_keys.npy
+```
+
+The same example can be run through the Python entry point directly:
+
+```bash
+PYTHONPATH=src python -u src/predypocket_predict.py \
+  --trajectory examples/dynamic_data_example/TOY/TOY_TOY_1.LIG_B_101/aa_traj.pdb \
+  --checkpoint weights/predypocket_model \
+  --out-prefix outputs/toy_inference/predypocket_toy_direct
+```
+
+## Training From MD Trajectories
+
+The default training command starts from raw MD data, performs 3:3:4 trajectory
+sampling, and builds expanded residue labels:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+EPOCHS=10 \
+BATCH_SIZE=4 \
+EVAL_BATCH_SIZE=1 \
+WORKERS=16 \
+MAX_RESIDUES=1000 \
+bash scripts/train_from_md.sh \
+  dynamic_data \
+  data/predypocket_dynamic \
+  runs/predypocket
+```
+
+The script runs these two stages:
+
+```bash
+PYTHONPATH=src python -u src/prepare_predypocket_data.py \
+  --dynamic-root dynamic_data \
+  --out-dir data/predypocket_dynamic \
+  --label-methods local_contact,homolog_contact,expanded_contact \
+  --enable-rcsb \
+  --homolog-identity 0.70 \
+  --homolog-coverage 0.80 \
+  --max-homologs 25 \
+  --workers 16 \
+  --worker-timeout 1200 \
+  --contact-cutoff 4.5 \
+  --buffer-cutoff 6.0
+
+PYTHONPATH=src python -u src/train_predypocket.py \
+  --dataset-csv data/predypocket_dynamic/dataset_expanded_contact.csv \
+  --checkpoint weights/predypocket_model \
+  --out-dir runs/predypocket \
+  --epochs 10 \
+  --batch-size 4 \
+  --eval-batch-size 1 \
+  --val-fraction 0.1 \
+  --learning-rate 1e-4 \
+  --freeze-backbone \
+  --manual-gpu-replicas \
+  --max-residues 1000
+```
+
+Notes:
+
+- `--freeze-backbone` freezes the PocketMiner/GVP encoder and trains the
+  temporal/ref-fusion layers plus the selected classifier parameters.
+- `--manual-gpu-replicas` creates one model replica per visible GPU. It is used
+  for compatibility with older TensorFlow/PocketMiner graph-mode behavior.
+- `--max-residues 1000` skips very large proteins during training to avoid
+  GVP memory spikes.
+- Remove `--enable-rcsb` and use `--label-methods local_contact` for offline
+  local-contact labels only.
+
+One-epoch smoke training on the toy example:
+
+```bash
+PYTHONPATH=src python -u src/train_predypocket.py \
+  --dataset-csv outputs/toy_prepared/dataset_local_contact.csv \
+  --checkpoint weights/predypocket_model \
+  --out-dir outputs/toy_train \
+  --epochs 1 \
+  --batch-size 1 \
+  --eval-batch-size 1 \
+  --val-fraction 0 \
+  --learning-rate 1e-4 \
+  --freeze-backbone
+```
+
+## Inference From MD Trajectories
+
+Inference also takes an MD trajectory. The model reselects the 3:3:4
+representative frames, scores residues, and clusters high-scoring residues into
+pocket candidates on the final/reference frame.
+
+Using a `dynamic_data` system directory:
+
+```bash
+MODEL_CHECKPOINT=weights/predypocket_model \
+bash scripts/predict_md.sh \
+  dynamic_data/4KVK/4KVK_4KVK_1.PG4_A_703 \
+  outputs/4KVK_predypocket
+```
+
+Using explicit trajectory and topology paths:
+
+```bash
+PYTHONPATH=src python -u src/predypocket_predict.py \
+  --trajectory path/to/traj.xtc \
+  --topology path/to/topology.pdb \
+  --checkpoint weights/predypocket_model \
+  --out-prefix outputs/query_predypocket
+```
+
+Outputs:
+
+```text
+outputs/query_predypocket_scores.npy
+outputs/query_predypocket_scores.csv
+outputs/query_predypocket_pockets.csv
+outputs/query_predypocket_selected_frames.npy
+outputs/query_predypocket_residue_keys.npy
+```
+
+## Label Definitions
+
+Training labels are residue-level values:
+
+- `1`: positive pocket/contact residue.
+- `0`: confident negative residue.
+- `-1`: ignored residue excluded from loss and metrics.
+
+The default `expanded_contact` label is the union of:
+
+- Local ligand-contact positives: any protein heavy atom within 4.5 A of any
+  ligand heavy atom.
+- Homolog transferred positives: ligand-contact residues from sequence-similar
+  RCSB complex structures mapped back to the query sequence.
+
+Homolog transfer is positive-only evidence; it does not create negative labels.
+
+## Validation
+
+Run unit tests:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+```
+
+Compile all source files:
+
+```bash
+python -m py_compile src/*.py
+```
+
+Run the included toy sampling command:
+
+```bash
+bash scripts/sample_md_frames.sh
+```
+
+## Reproduced Training Run
+
+An internal run completed 10 epochs on expanded labels after filtering proteins
+larger than 1000 residues. The lowest validation loss was at epoch 3, while the
+highest validation ROC-AUC and PR-AUC were at epoch 9. See
+`docs/training_results.md` for details.
 
 ## Citation
 
-Please cite this software release using the metadata in `CITATION.cff`.
+If you use this repository, cite:
 
+1. The PreDyPocket/CpuPDB manuscript associated with this repository.
+2. PocketMiner: cryptic pocket prediction from protein structures.
+3. Geometric Vector Perceptrons for protein structure representation learning.

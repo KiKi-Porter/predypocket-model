@@ -1,23 +1,18 @@
 cff-version: 1.2.0
-message: "If you use PreDyPocket, cite the CpuPDB manuscript and the upstream GVP work listed in README.md."
-title: "PreDyPocket: Precursor Dynamics Pocket"
-type: software
+message: "If you use this code, please cite the PreDyPocket/CpuPDB manuscript and the upstream PocketMiner/GVP papers."
+title: "PreDyPocket: MD trajectory based cryptic pocket prediction"
 authors:
-  - family-names: Tang
-    given-names: Kui
-  - family-names: Zhang
-    given-names: Xuan
-  - family-names: Duan
-    given-names: "Zhi T."
-  - family-names: Lui
-    given-names: "Ding H."
-  - family-names: Li
-    given-names: "Hao L."
-  - family-names: Zhu
-    given-names: "Wen Y."
-  - family-names: Liao
-    given-names: Jun
-    email: liaojun@cpu.edu.cn
-repository-code: "https://github.com/REPLACE_WITH_FINAL_REPOSITORY_URL"
-license: MIT
-
+  - family-names: "TODO"
+    given-names: "TODO"
+version: "0.1.0"
+date-released: "2026-09-10"
+repository-code: "https://github.com/KiKi-Porter/predypocket-model"
+abstract: "A PreDyPocket research implementation for preparing molecular dynamics trajectories with chronological 3:3:4 representative frame selection and predicting pocket residues from MD trajectories."
+preferred-citation:
+  type: article
+  title: "CpuPDB: a Conformational Pocket-Universe database integrating experimental, dynamic and predicted binding-site evidence"
+  authors:
+    - family-names: "TODO"
+      given-names: "TODO"
+  year: 2026
+  notes: "Replace this placeholder with the final manuscript metadata before release."
